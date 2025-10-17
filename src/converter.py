@@ -24,28 +24,46 @@ class DocxConverter:
         self.log = log_callback if log_callback else print
         self.error = error_callback if error_callback else lambda msg: print(f"ERROR: {msg}")
 
-    def run_conversion(self):
-        """执行完整的转换流程"""
-        self.log(f"--- 任务开始: 处理 '{os.path.basename(self.docx_path)}' ---")
-        
+    def parse_document(self):
+        """
+        步骤1 & 2: 解析Word文档，进行路径修正，并返回内容块列表。
+        此方法供GUI调用以实现预览功能。
+        """
+        self.log("--- 开始解析文档 ---")
         try:
             doc = docx.Document(self.docx_path)
         except Exception as e:
             self.error(f"无法打开Word文档 '{self.docx_path}'.\n详情: {e}")
-            return
+            return None
 
-        # 1. 智能解析文档
+        # 1. 智能解析文档 (结果保存在 self.parsed_blocks)
         self._parse_paragraphs(doc.paragraphs)
+        
         if not self.parsed_blocks:
             self.log("未在文档中找到任何有效内容。")
-            return
+            return []
 
         # 2. 对代码块进行路径修正
         self._process_code_paths()
+        
+        self.log(f"文档解析完成。")
+        return self.parsed_blocks
+
+    def create_notebook_from_blocks(self, blocks):
+        """
+        步骤3 & 4: 根据给定的内容块列表创建并（可选地）执行Notebook。
+        此方法供GUI在用户确认后调用。
+        """
+        if not blocks:
+            self.log("未提供任何内容块，无法创建Notebook。")
+            return
+
+        self.parsed_blocks = blocks # 使用GUI提供（可能已修改）的块列表
+        self.log(f"\n--- 基于 {len(self.parsed_blocks)} 个选定块创建 Notebook ---")
 
         # 3. 创建 Notebook
         if not self._create_notebook():
-            return
+            return # 创建失败
 
         # 4. 如果指定了内核，则执行 Notebook
         if self.kernel_name:
@@ -53,6 +71,16 @@ class DocxConverter:
         
         self.log(f"\n--- 任务完成 ---")
         self.log(f"最终文件 '{self.output_filename}' 已保存在Word文档相同目录下。")
+
+    def run_conversion(self):
+        """执行完整的转换流程，保持对旧接口（如命令行）的兼容。"""
+        self.log(f"--- 任务开始: 处理 '{os.path.basename(self.docx_path)}' ---")
+        
+        parsed_blocks = self.parse_document()
+
+        # parse_document 在严重错误时返回 None，在无内容时返回 []
+        if parsed_blocks is not None:
+            self.create_notebook_from_blocks(parsed_blocks)
 
     def _sanitize_text(self, text):
         # 关键修复1：将所有非中断空格 (U+00A0) 替换为标准的空格
@@ -139,6 +167,7 @@ class DocxConverter:
 
     def _parse_paragraphs(self, paragraphs):
         self.log("\n--- 开始智能解析 Word 文档 ---")
+        self.parsed_blocks = [] # 每次解析前清空，确保幂等性
         block_buffer = []
         current_block_type = None
         for para in paragraphs:
