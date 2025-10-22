@@ -4,7 +4,10 @@
 
 本工具提供了一个简洁的图形用户界面（GUI）和一个命令行接口（CLI），以满足不同用户的需求。
 
-![应用截图](./screenshots/屏幕截图 2025-10-22 140605.png)
+<p align="center">
+  <img src="./screenshots/屏幕截图 2025-10-22 140605.png" alt="应用主界面" width="49%">
+  <img src="./screenshots/屏幕截图 2025-10-22 140700.png" alt="预览与调整窗口" width="49%">
+</p>
 
 
 ## ✨ 主要功能
