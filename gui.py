@@ -62,7 +62,7 @@ class PreviewWindow(tk.Toplevel):
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=scrollbar.set)
 
-        self._bind_mouse_scroll(self.canvas)
+        self._bind_mouse_scroll(self) # Bind scrolling to the entire window and its children
         self.canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
@@ -74,10 +74,14 @@ class PreviewWindow(tk.Toplevel):
         confirm_button.pack(pady=5)
 
     def _bind_mouse_scroll(self, widget):
-        """ Binds mouse wheel events for cross-platform scrolling. """
-        widget.bind("<MouseWheel>", self._on_mousewheel)  # Windows
-        widget.bind("<Button-4>", self._on_mousewheel)    # Linux scroll up
-        widget.bind("<Button-5>", self._on_mousewheel)    # Linux scroll down
+        """ Binds mouse wheel events for cross-platform scrolling recursively. """
+        # Bind the event to the widget itself
+        widget.bind("<MouseWheel>", self._on_mousewheel)
+        widget.bind("<Button-4>", self._on_mousewheel)
+        widget.bind("<Button-5>", self._on_mousewheel)
+        # Recursively bind the event to all children
+        for child in widget.winfo_children():
+            self._bind_mouse_scroll(child)
 
     def _on_mousewheel(self, event):
         """ Handles cross-platform mouse wheel scrolling. """
@@ -191,13 +195,20 @@ class App:
         self._setup_background()
         self._create_widgets()
 
+    def _get_cache_dir(self):
+        """Returns a writable directory for caching generated assets."""
+        # Use user's home directory for persistent, writable storage
+        cache_dir = os.path.join(os.path.expanduser('~'), '.word_to_jupyter_cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        return cache_dir
+
     def _create_ui_background_if_needed(self):
         """
-        Checks if the UI background image exists. If not, it generates one
-        by rendering text onto the source background image. This function
-        is adapted from the original prepare_assets.py script.
+        Checks if the UI background image exists in a writable cache.
+        If not, it generates one by rendering text onto the embedded background.
+        This is crucial for PyInstaller's one-file mode.
         """
-        output_path = resource_path(os.path.join('assets', 'background_ui.png'))
+        output_path = os.path.join(self._get_cache_dir(), 'background_ui.png')
 
         if os.path.exists(output_path):
             return  # Background already exists, do nothing.
@@ -256,7 +267,7 @@ class App:
         self._create_ui_background_if_needed()
 
         # 2. Load the final UI background image
-        bg_path = resource_path(os.path.join('assets', 'background_ui.png'))
+        bg_path = os.path.join(self._get_cache_dir(), 'background_ui.png')
         if os.path.exists(bg_path):
             try:
                 self.bg_image_pil = Image.open(bg_path).resize((self.WIN_WIDTH, self.WIN_HEIGHT), Image.Resampling.LANCZOS)
@@ -314,19 +325,19 @@ class App:
         # --- Widget Creation ---
         # Document selection
         doc_entry = ttk.Entry(self.root, textvariable=self.file_path, width=30, state='readonly')
-        doc_entry.place(x=410, y=doc_y, anchor='e')
+        doc_entry.place(x=420, y=doc_y, anchor='e')
         doc_button = ttk.Button(self.root, text="选择文件", command=self.select_file, width=12)
-        doc_button.place(x=420, y=doc_y, anchor='w')
+        doc_button.place(x=430, y=doc_y, anchor='w')
 
         # Kernel name entry
         kernel_entry = ttk.Entry(self.root, textvariable=self.kernel_name, width=30)
-        kernel_entry.place(x=410, y=kernel_y, anchor='e')
+        kernel_entry.place(x=420, y=kernel_y, anchor='e')
 
         # Kernel hint label
         hint_y = kernel_y + 22
         hint_label = tk.Label(self.root, text="(可选, 留空则跳过执行)",
                               font=("", 8), bg="#DFE5EA", fg="gray", borderwidth=0)
-        hint_label.place(x=410, y=hint_y, anchor='e')
+        hint_label.place(x=380, y=hint_y, anchor='e')
 
         # Main action button
         button_y = kernel_y + 75
@@ -425,14 +436,3 @@ class App:
             self.status_text.set(f"❌ 严重错误: {e}")
             messagebox.showerror("严重错误", f"在最终转换过程中发生严重错误:\n{e}")
 
-
-if __name__ == '__main__':
-    root = tk.Tk()
-    style = ttk.Style(root)
-    # Use a modern theme if available, otherwise fallback gracefully.
-    try:
-        style.theme_use("arc")
-    except tk.TclError:
-        print("Note: 'arc' theme not available, using default theme.")
-    app = App(root)
-    root.mainloop()

@@ -29,11 +29,10 @@
 
 1.  **克隆仓库**
     ```bash
-    git clone https://github.com/<您的GitHub用户名>/Word-to-Jupyter-Converter.git
-    cd Word-to-Jupyter-Converter
+    git clone https://github.com/18621783074/Word-to-Jupyter-Converter.git
     ```
 
-2.  **创建并激活虚拟环境**
+2.  **创建并激活虚拟环境**te
     ```bash
     # Windows
     python -m venv .venv
