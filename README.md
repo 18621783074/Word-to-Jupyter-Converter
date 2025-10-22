@@ -4,7 +4,7 @@
 
 本工具提供了一个简洁的图形用户界面（GUI）和一个命令行接口（CLI），以满足不同用户的需求。
 
-![应用截图](https://raw.githubusercontent.com/18621783074/Word-to-Jupyter-Converter/main/screenshots/main_window.png)
+![应用截图](./screenshots/屏幕截图 2025-10-22 140605.png)
 
 
 ## ✨ 主要功能
