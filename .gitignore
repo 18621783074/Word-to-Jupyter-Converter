@@ -26,3 +26,8 @@ tempCodeRunnerFile.py
 
 # Generated UI background
 /assets/background_ui.png
+
+# Ignore local test scripts and generated artifacts
+create_test_doc.py
+test_path_correction.docx
+test_path_correction.ipynb
