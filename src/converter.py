@@ -1,6 +1,11 @@
-# 文件名: converter.py
-# 描述: 包含了从Word到Jupyter Notebook转换的核心逻辑。
-
+# -*- coding: utf-8 -*-
+"""
+Word to Jupyter Converter - Core Logic
+Description: Contains the main DocxConverter class that handles parsing the
+             Word document, identifying code/markdown blocks, and generating
+             the Jupyter Notebook.
+Author: Stella
+"""
 import os
 import re
 import sys
@@ -11,7 +16,11 @@ import docx
 import nbformat
 from nbformat.v4 import new_notebook, new_code_cell, new_markdown_cell
 
+
 class DocxConverter:
+    """
+    Handles the core logic of converting a .docx file to a .ipynb file.
+    """
     def __init__(self, docx_path, kernel_name=None, log_callback=None, error_callback=None):
         self.docx_path = docx_path
         self.kernel_name = kernel_name
@@ -19,189 +28,262 @@ class DocxConverter:
         self.output_filename = os.path.splitext(os.path.basename(docx_path))[0] + '.ipynb'
         self.output_path = os.path.join(self.docx_dir, self.output_filename)
         self.parsed_blocks = []
-        
-        # 设置回调函数
+
+        # Setup callbacks for logging and errors to communicate with the GUI
         self.log = log_callback if log_callback else print
         self.error = error_callback if error_callback else lambda msg: print(f"ERROR: {msg}")
 
     def parse_document(self):
         """
-        步骤1 & 2: 解析Word文档，进行路径修正，并返回内容块列表。
-        此方法供GUI调用以实现预览功能。
+        Step 1 & 2: Parse the Word document, correct file paths in code,
+        and return a list of content blocks for the GUI to preview.
         """
-        self.log("--- 开始解析文档 ---")
+        self.log("--- Starting Document Analysis ---")
         try:
             doc = docx.Document(self.docx_path)
         except Exception as e:
-            self.error(f"无法打开Word文档 '{self.docx_path}'.\n详情: {e}")
+            self.error(f"Could not open Word document '{self.docx_path}'.\nDetails: {e}")
             return None
 
-        # 1. 智能解析文档 (结果保存在 self.parsed_blocks)
+        # 1. Intelligently parse paragraphs into blocks
         self._parse_paragraphs(doc.paragraphs)
-        
+
         if not self.parsed_blocks:
-            self.log("未在文档中找到任何有效内容。")
+            self.log("No valid content found in the document.")
             return []
 
-        # 2. 对代码块进行路径修正
+        # 2. Process code blocks to correct hardcoded file paths
         self._process_code_paths()
-        
-        self.log(f"文档解析完成。")
+
+        self.log("Document analysis complete.")
         return self.parsed_blocks
 
     def create_notebook_from_blocks(self, blocks):
         """
-        步骤3 & 4: 根据给定的内容块列表创建并（可选地）执行Notebook。
-        此方法供GUI在用户确认后调用。
+        Step 3 & 4: Create and optionally execute a Notebook from a given
+        list of content blocks (potentially modified by the user in the GUI).
         """
         if not blocks:
-            self.log("未提供任何内容块，无法创建Notebook。")
-            return
+            self.log("No content blocks provided; cannot create Notebook.")
+            return False, "NO_BLOCKS"
 
-        self.parsed_blocks = blocks # 使用GUI提供（可能已修改）的块列表
-        self.log(f"\n--- 基于 {len(self.parsed_blocks)} 个选定块创建 Notebook ---")
+        self.parsed_blocks = blocks
+        self.log(f"\n--- Creating Notebook from {len(self.parsed_blocks)} selected blocks ---")
 
-        # 3. 创建 Notebook
+        # 3. Create the .ipynb file
         if not self._create_notebook():
-            return # 创建失败
+            return False, "CREATE_FAILED"
 
-        # 4. 如果指定了内核，则执行 Notebook
+        # 4. Execute the notebook if a kernel name is provided
+        execution_status = "NOT_RUN"
         if self.kernel_name:
-            self._run_notebook()
-        
-        self.log(f"\n--- 任务完成 ---")
-        self.log(f"最终文件 '{self.output_filename}' 已保存在Word文档相同目录下。")
+            execution_status = self._run_notebook()
+
+        self.log(f"\n--- Task Complete ---")
+        self.log(f"Final file '{self.output_filename}' has been saved in the same directory as the Word document.")
+        return True, execution_status
 
     def run_conversion(self):
-        """执行完整的转换流程，保持对旧接口（如命令行）的兼容。"""
-        self.log(f"--- 任务开始: 处理 '{os.path.basename(self.docx_path)}' ---")
-        
+        """
+        Executes the full conversion process. Provided for compatibility
+        with non-GUI interfaces like a command-line script.
+        """
+        self.log(f"--- Task Started: Processing '{os.path.basename(self.docx_path)}' ---")
+
         parsed_blocks = self.parse_document()
 
-        # parse_document 在严重错误时返回 None，在无内容时返回 []
         if parsed_blocks is not None:
             self.create_notebook_from_blocks(parsed_blocks)
 
     def _sanitize_text(self, text):
-        # 关键修复1：将所有非中断空格 (U+00A0) 替换为标准的空格
+        """
+        Cleans text extracted from Word by replacing special whitespace
+        characters and removing invisible control characters.
+        """
+        # Replace non-breaking spaces (U+00A0) with standard spaces
         text = text.replace('\u00A0', ' ')
-        # 关键修复2：将所有软回车 (垂直制表符 \v) 替换为标准的换行符 \n
+        # Replace vertical tabs (soft newlines) with standard newlines
         text = text.replace('\v', '\n')
-        # 最终修复：将所有回车符 \r (carriage return) 也替换为标准的换行符 \n
+        # Replace carriage returns with standard newlines
         text = text.replace('\r', '\n')
-        # 然后，再移除其他残留的、我们确实不希望出现的不可见控制字符
+        # Remove other problematic control characters
         return re.sub(r'[\x00-\x08\x0c\x0e-\x1f]', '', text)
 
     def _find_file_in_project(self, filename):
+        """ Recursively searches for a file within the project directory. """
         start_path = Path(self.docx_dir).resolve()
         found_files = list(start_path.rglob(filename))
         if found_files:
+            # Return the path in a consistent, cross-platform (POSIX) format
             return found_files[0].resolve().as_posix()
         return None
 
     def _process_code_paths(self):
-        self.log("\n--- 开始智能路径修正 ---")
+        """ Iterates through code blocks and applies path correction. """
+        self.log("\n--- Starting Smart Path Correction ---")
         for block in self.parsed_blocks:
             if block['type'] == 'code':
                 block['content'] = self._process_single_code_block(block['content'])
-        self.log("--- 路径修正结束 ---")
+        self.log("--- Path Correction Finished ---")
 
     def _process_single_code_block(self, code_content):
+        """
+        Uses regex to find and replace file paths in a single code block.
+        """
+        # This regex finds common data loading functions and captures the file path.
         pattern = re.compile(
             r"""
+            # Group 1: The function call (e.g., pd.read_csv, np.load, open)
             ( \b(?:pd|pandas)\.read_\w+\b | \b(?:np|numpy)\.(?:loadtxt|load|genfromtxt)\b | \bopen\b )
-            \s*\( \s* (?:[\w\d_]+\s*=\s*)? (['"]) (.*?) \2 """,
+            \s*\( \s*
+            (?:[\w\d_]+\s*=\s*)? # Optional keyword argument (e.g., filepath=)
+            (['"])               # Group 2: The opening quote (' or ")
+            (.*?)                # Group 3: The actual path (non-greedy)
+            \2                   # Matches the same closing quote
+            """,
             re.VERBOSE | re.IGNORECASE
         )
         modified_code = code_content
+        # Iterate backwards to avoid messing up indices of subsequent matches
         for match in reversed(list(pattern.finditer(code_content))):
             original_full_match = match.group(0)
             original_path = match.group(3)
             filename = os.path.basename(original_path)
-            if not filename or filename == ".": continue
-            self.log(f"INFO: 在代码中发现文件引用: '{filename}' (原始路径: '{original_path}')")
+
+            if not filename or filename == ".":
+                continue
+
+            self.log(f"Info: Found file reference: '{filename}' (Original path: '{original_path}')")
             real_path = self._find_file_in_project(filename)
+
             if real_path:
-                new_full_match = original_full_match.replace(original_path, real_path, 1)
+                # Ensure path uses forward slashes for consistency in Python strings
+                safe_real_path = real_path.replace('\\', '/')
+                new_full_match = original_full_match.replace(original_path, safe_real_path, 1)
                 start, end = match.span()
                 modified_code = modified_code[:start] + new_full_match + modified_code[end:]
-                self.log(f"SUCCESS: 路径已自动修正 -> '{real_path}'")
+                self.log(f"Success: Auto-corrected path -> '{safe_real_path}'")
             else:
-                self.log(f"WARNING: 未能在项目目录中找到 '{filename}'。代码中的路径将保持原样。")
+                self.log(f"Warning: Could not find '{filename}' in the project directory. Path will be left as is.")
         return modified_code
 
     def _is_likely_python_code(self, text):
+        """
+        A heuristic-based classifier to determine if a line of text is code.
+
+        Returns:
+            A tuple: (is_code, is_uncertain)
+            - (True, False): Confidently code.
+            - (True, True):  Likely code, but uncertain.
+            - (False, False): Confidently markdown.
+        """
         text_stripped = text.strip()
-        if not text_stripped: return False
-        BLACKLIST_SINGLE_WORDS = {'Jupyter', 'Python', 'Numpy', 'Pandas', 'Matplotlib', 'Scipy', 'Tensorflow', 'Pytorch', 'Linux', 'Windows', 'MacOS','or','and','not'}
-        if text_stripped in BLACKLIST_SINGLE_WORDS: return False
+        if not text_stripped:
+            return (False, False)
+
+        # High-confidence keywords and patterns (definitely code)
+        high_confidence_patterns = [
+            r'\bimport\s+', r'\bfrom\s+', r'\bdef\s+', r'\bclass\s+',
+            r'print\s*\(', r'np\.', r'pd\.', r'plt\.'
+        ]
+        if any(re.search(pattern, text_stripped) for pattern in high_confidence_patterns):
+            return (True, False)
+
+        # High-confidence markdown patterns (definitely not code)
+        if text_stripped.startswith(('#', '##', '###')):
+             return (False, False)
+        BLACKLIST_SINGLE_WORDS = {
+            'Jupyter', 'Python', 'Numpy', 'Pandas', 'Matplotlib', 'Scipy',
+            'Tensorflow', 'Pytorch', 'Linux', 'Windows', 'MacOS'
+        }
+        if text_stripped in BLACKLIST_SINGLE_WORDS:
+            return (False, False)
+        
+        # Handle lines with Chinese characters
         if re.search(r'[\u4e00-\u9fa5]', text_stripped):
             text_no_strings = re.sub(r'(\'.*?\')|(\".*?\")', '', text_stripped)
             if re.search(r'[\u4e00-\u9fa5]', text_no_strings):
                 if '#' in text_no_strings:
                     parts = text_no_strings.split('#', 1)
                     code_part = parts[0].strip()
-                    comment_part = parts[1] if len(parts) > 1 else ""
-                    # 检查注释部分是否有中文
-                    if re.search(r'[\u4e00-\u9fa5]', comment_part):
-                        # 如果#号前是看起来无害的代码，就判定为代码
-                        if not code_part: return True
-                        if '=' not in code_part and '(' not in code_part and len(code_part.split()) > 2:
-                            return False
-                        return True
-                else:
-                    return False
-            return True
+                    if code_part:
+                        return (True, False) # Code with Chinese comment
+                return (False, False) # Chinese is in the code part, not a comment
+            return (True, True) # Chinese only in string literals is uncertain
+
+        # Exclude common shell commands
         shell_commands = ['cd', 'ls', 'pip', 'conda', 'ipython', 'jupyter', 'mkdir']
-        if text_stripped.split() and text_stripped.split()[0] in shell_commands: return False
-        # 使用正则表达式来更健壮地匹配关键字，\s+可以匹配任何空白字符（包括word中的特殊空格）
-        python_patterns = [
-            r'\bimport\s+', r'\bfrom\s+', r'\bdef\s+', r'\bclass\s+', r'\bif\s+', r'\bfor\s+',
-            r'\bwhile\s+', r'\breturn\b', r'print\s*\(', r'np\.', r'pd\.', r'plt\.'
+        if text_stripped.split() and text_stripped.split()[0] in shell_commands:
+            return (False, False)
+            
+        # Medium-confidence patterns (likely code, but could be ambiguous)
+        medium_confidence_patterns = [
+            r'\bif\s+', r'\bfor\s+', r'\bwhile\s+', r'\breturn\b',
+            r'^[a-zA-Z_][\w\.]*\s*(=|\+=|-=|\*=|/=|\[|\(|\.).*$', # Assignments / calls
+            r'^\s*[\w\d\._]+\s*[\+\-\*\/%]+\s*[\w\d\._]+\s*$', # Simple arithmetic
+            r'^[a-zA-Z_][\w\d\._\[\]\'\"]*$' # A single variable name
         ]
-        if any(re.search(pattern, text_stripped) for pattern in python_patterns): return True
-        if re.match(r'^[a-zA-Z_][\w\.]*\s*(=|\+=|-=|\*=|/=|\[|\(|\.).*$', text_stripped): return True
-        if re.match(r'^\s*[\w\d\.\_]+\s*[\+\-\*\/\%]{1,2}\s*[\w\d\.\_]+\s*$', text_stripped) and ' ' not in text_stripped: return True
-        if re.match(r'^[a-zA-Z_][\w\d\._\[\]\'\"]*$', text_stripped): return True
-        return False
+        if any(re.search(pattern, text_stripped) for pattern in medium_confidence_patterns):
+            # A single word could just be a name in a sentence.
+            if ' ' not in text_stripped and '.' not in text_stripped:
+                return (True, True)
+            return (True, True)
+
+        return (False, False)
 
     def _parse_paragraphs(self, paragraphs):
-        self.log("\n--- 开始智能解析 Word 文档 ---")
-        self.parsed_blocks = [] # 每次解析前清空，确保幂等性
+        """
+        Parses paragraphs from the docx file, intelligently grouping them
+        into code and markdown blocks.
+        """
+        self.log("\n--- Parsing Word Document Content ---")
+        self.parsed_blocks = []  # Clear previous results
         block_buffer = []
         current_block_type = None
+
         for para in paragraphs:
-            # 预处理：将一个段落内可能存在的“代码+中文”混合体分裂
-            # 这个正则表达式寻找一个右括号、右方括号或右花括号，后面紧跟着一个中文字符，
-            # 并在它们之间插入一个换行符。
             sanitized_text = self._sanitize_text(para.text)
             processed_text = re.sub(r'([\)\]\}])([\u4e00-\u9fa5])', r'\1\n\2', sanitized_text)
-            
-            # 现在，我们按真正的换行符来处理每一行
             lines = processed_text.split('\n')
 
             for line in lines:
                 text = line.strip()
-                if not text or text.lower() == 'copy': continue
-                
-                para_type = 'code' if self._is_likely_python_code(text) else 'markdown'
-                
-                if current_block_type is None: current_block_type = para_type
-                
+                if not text or text.lower() == 'copy':
+                    continue
+
+                is_code, is_uncertain = self._is_likely_python_code(text)
+                para_type = 'code' if is_code else 'markdown'
+
+                if current_block_type is None:
+                    current_block_type = para_type
+
                 if para_type == current_block_type:
-                    block_buffer.append(text)
+                    block_buffer.append({'text': text, 'uncertain': is_uncertain})
                 else:
                     if block_buffer:
-                        content = '\n'.join(block_buffer)
-                        self.parsed_blocks.append({'type': current_block_type, 'content': content})
+                        block_is_uncertain = any(item['uncertain'] for item in block_buffer)
+                        content = '\n'.join(item['text'] for item in block_buffer)
+                        self.parsed_blocks.append({
+                            'type': current_block_type,
+                            'content': content,
+                            'uncertain': block_is_uncertain if current_block_type == 'code' else False
+                        })
                     current_block_type = para_type
-                    block_buffer = [text]
+                    block_buffer = [{'text': text, 'uncertain': is_uncertain}]
+        
         if block_buffer:
-            content = '\n'.join(block_buffer)
-            self.parsed_blocks.append({'type': current_block_type, 'content': content})
-        self.log(f"解析完成，共生成 {len(self.parsed_blocks)} 个内容块。")
+            block_is_uncertain = any(item['uncertain'] for item in block_buffer)
+            content = '\n'.join(item['text'] for item in block_buffer)
+            self.parsed_blocks.append({
+                'type': current_block_type,
+                'content': content,
+                'uncertain': block_is_uncertain if current_block_type == 'code' else False
+            })
+
+        self.log(f"Parsing complete. Generated {len(self.parsed_blocks)} content blocks.")
 
     def _create_notebook(self):
+        """ Creates a .ipynb file from the parsed blocks. """
         nb = new_notebook()
         for block in self.parsed_blocks:
             if block['type'] == 'code':
@@ -211,33 +293,49 @@ class DocxConverter:
         try:
             with open(self.output_path, 'w', encoding='utf-8') as f:
                 nbformat.write(nb, f)
-            self.log(f"✅ 成功创建 Notebook: '{self.output_path}'")
+            self.log(f"✅ Notebook created successfully: '{self.output_path}'")
             return True
         except Exception as e:
-            self.error(f"写入 Notebook 文件失败: {e}")
+            self.error(f"Failed to write Notebook file: {e}")
             return False
 
     def _run_notebook(self):
-        self.log("\n--- 开始执行 Notebook ---")
-        self.log(f"指定内核: {self.kernel_name}")
+        """ Executes the created Notebook using nbconvert. """
+        self.log("\n--- Executing Notebook ---")
+        self.log(f"Using kernel: {self.kernel_name}")
         command = [
-            sys.executable, '-m', 'jupyter', 'nbconvert',
+            'jupyter', 'nbconvert',
             '--to', 'notebook', '--execute', '--inplace',
             f'--ExecutePreprocessor.kernel_name={self.kernel_name}',
             '--allow-errors', self.output_path
         ]
-        self.log(f"[执行命令]: {' '.join(command)}")
+        self.log(f"Executing command: {' '.join(command)}")
         try:
-            result = subprocess.run(command, capture_output=True, text=True, check=False, encoding='utf-8', errors='ignore')
+            # Hide console window on Windows when running from a bundled exe
+            startupinfo = None
+            if sys.platform == 'win32':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+            result = subprocess.run(
+                command, capture_output=True, text=True, check=False,
+                encoding='utf-8', errors='ignore', startupinfo=startupinfo
+            )
+
             if "Kernel not found" in result.stderr:
-                self.error(f"内核 '{self.kernel_name}' 未找到！请检查内核名称是否正确。\n--- Jupyter 返回的错误信息 ---\n{result.stderr}")
-                return
+                self.error(f"Kernel '{self.kernel_name}' not found!\n{result.stderr}")
+                return f"KERNEL_NOT_FOUND:{self.kernel_name}"
+
             if result.returncode == 0:
-                self.log("✅ Notebook 执行成功。")
+                self.log("✅ Notebook executed successfully.")
+                return "SUCCESS"
             else:
-                self.log("⚠️ Notebook 执行时遇到错误（已记录在输出文件中）。")
-            self.log("-" * 25)
+                self.log("⚠️ Errors occurred during Notebook execution (see output file for details).")
+                return "EXECUTION_ERROR"
+
         except FileNotFoundError:
-            self.error("'jupyter' 命令未找到。请确保 Jupyter 已安装并在系统路径中。")
+            self.error("'jupyter' command not found. Please ensure Jupyter is installed and in your system's PATH.")
+            return "JUPYTER_NOT_FOUND"
         except Exception as e:
-            self.error(f"执行时发生未知错误: {e}")
+            self.error(f"An unknown error occurred during execution: {e}")
+            return f"UNKNOWN_ERROR:{e}"

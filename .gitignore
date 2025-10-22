@@ -1,15 +1,28 @@
-# Python virtual environment
-.venv/
-venv/
-ENV/
-
-# Python cache files
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# VS Code specific files
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Build and distribution artifacts
+build/
+dist/
+*.spec
+
+# IDE and editor files
 .vscode/
+.idea/
+*.swp
+*~
+
+# Temporary files
 tempCodeRunnerFile.py
 
-# Generated debug output
-debug_output/
+# Generated UI background
+/assets/background_ui.png

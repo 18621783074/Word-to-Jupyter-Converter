@@ -1,4 +1,4 @@
-id,name,value
-1,alpha,100
-2,beta,200
-3,gamma,300
+"ID","Name","Score"
+1,"Alice",88
+2,"Bob",92
+3,"Charlie",75
